@@ -1,0 +1,82 @@
+{
+	"meta": {
+		"format_version": "4.10",
+		"model_format": "free",
+		"box_uv": false
+	},
+	"name": "PUZ_BallPG_Quest_Blocks",
+	"resolution": {
+		"width": 64,
+		"height": 64
+	},
+	"elements": [
+		{
+			"name": "square_stone_base",
+			"from": [-8, 0, -6],
+			"to": [8, 4, 6],
+			"rotation": {"angle": 0, "axis": "y", "origin": [0, 0, 0]},
+			"faces": {
+				"north": {"uv": [0, 0, 16, 4], "texture": 0},
+				"south": {"uv": [0, 0, 16, 4], "texture": 0},
+				"east": {"uv": [0, 0, 12, 4], "texture": 0},
+				"west": {"uv": [0, 0, 12, 4], "texture": 0},
+				"up": {"uv": [0, 0, 16, 12], "texture": 0},
+				"down": {"uv": [0, 0, 16, 12], "texture": 0}
+			}
+		},
+		{
+			"name": "diamond_rank_base",
+			"from": [-7, 0, -7],
+			"to": [7, 4, 7],
+			"rotation": {"angle": 45, "axis": "y", "origin": [0, 2, 0]},
+			"faces": {
+				"north": {"uv": [0, 16, 14, 20], "texture": 0},
+				"south": {"uv": [0, 16, 14, 20], "texture": 0},
+				"east": {"uv": [0, 16, 14, 20], "texture": 0},
+				"west": {"uv": [0, 16, 14, 20], "texture": 0},
+				"up": {"uv": [0, 16, 14, 30], "texture": 0},
+				"down": {"uv": [0, 16, 14, 30], "texture": 0}
+			}
+		},
+		{
+			"name": "boss_double_block",
+			"from": [-12, 0, -7],
+			"to": [12, 5, 7],
+			"rotation": {"angle": 0, "axis": "y", "origin": [0, 0, 0]},
+			"faces": {
+				"north": {"uv": [20, 0, 44, 5], "texture": 0},
+				"south": {"uv": [20, 0, 44, 5], "texture": 0},
+				"east": {"uv": [20, 0, 34, 5], "texture": 0},
+				"west": {"uv": [20, 0, 34, 5], "texture": 0},
+				"up": {"uv": [20, 0, 44, 14], "texture": 0},
+				"down": {"uv": [20, 0, 44, 14], "texture": 0}
+			}
+		},
+		{
+			"name": "icon_plinth",
+			"from": [-5, 4, -3],
+			"to": [5, 5, 3],
+			"rotation": {"angle": 0, "axis": "y", "origin": [0, 4, 0]},
+			"faces": {
+				"north": {"uv": [0, 32, 10, 33], "texture": 0},
+				"south": {"uv": [0, 32, 10, 33], "texture": 0},
+				"east": {"uv": [0, 32, 6, 33], "texture": 0},
+				"west": {"uv": [0, 32, 6, 33], "texture": 0},
+				"up": {"uv": [0, 32, 10, 38], "texture": 0},
+				"down": {"uv": [0, 32, 10, 38], "texture": 0}
+			}
+		}
+	],
+	"outliner": ["square_stone_base", "diamond_rank_base", "boss_double_block", "icon_plinth"],
+	"textures": [
+		{
+			"id": "stone_palette",
+			"name": "stone_palette",
+			"width": 64,
+			"height": 64,
+			"uv_width": 64,
+			"uv_height": 64,
+			"source": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+		}
+	]
+}

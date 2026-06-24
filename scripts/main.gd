@@ -12,6 +12,7 @@ const DEFAULT_ICON_HEIGHT := 0.78
 const DEFAULT_BOSS_ICON_HEIGHT := 0.93
 const DEFAULT_ICON_SCALE := 1.0
 const DEBUG_CFG_PATH := "user://puz_ballpg_debug_camera.cfg"
+const DEFAULT_DEBUG_CFG_PATH := "res://debug_defaults.cfg"
 const DEBUG_SECTIONS := [
 	{"key": "view", "title": "VIEW / CAMERA", "specs": [
 		["camera_tilt_deg", "Cam Tilt", -78.0, -35.0, 0.5],
@@ -933,7 +934,9 @@ func _save_debug_defaults() -> void:
 
 func _load_debug_defaults() -> void:
 	var cfg := ConfigFile.new()
-	if cfg.load(DEBUG_CFG_PATH) != OK:
+	# Prefer the user's saved tweaks; otherwise fall back to the defaults committed
+	# to the project (debug_defaults.cfg).
+	if cfg.load(DEBUG_CFG_PATH) != OK and cfg.load(DEFAULT_DEBUG_CFG_PATH) != OK:
 		_sync_debug_controls()
 		_update_debug_sections()
 		return

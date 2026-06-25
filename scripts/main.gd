@@ -8,8 +8,8 @@ const DEFAULT_CAMERA_TILT_DEG := -63.0
 const DEFAULT_CAMERA_YAW_DEG := 0.0
 const DEFAULT_CAMERA_FOV_DEG := 46.0
 const DEFAULT_CAMERA_PADDING := 1.08
-const DEFAULT_ICON_HEIGHT := 0.78
-const DEFAULT_BOSS_ICON_HEIGHT := 0.93
+const DEFAULT_ICON_HEIGHT := 0.98
+const DEFAULT_BOSS_ICON_HEIGHT := 1.14
 const DEFAULT_ICON_SCALE := 1.0
 const DEBUG_CFG_PATH := "user://puz_ballpg_debug_camera.cfg"
 const DEFAULT_DEBUG_CFG_PATH := "res://debug_defaults.cfg"
@@ -20,10 +20,10 @@ const DEBUG_SECTIONS := [
 		["camera_fov_deg", "Cam FOV", 34.0, 62.0, 0.5],
 		["camera_padding", "Cam Pad", 0.92, 1.35, 0.01],
 	]},
-	{"key": "blocks", "title": "BLOCK ICONS", "specs": [
-		["block_icon_height", "Icon Y", 0.52, 1.2, 0.01],
-		["boss_icon_height", "Boss Icon Y", 0.64, 1.45, 0.01],
-		["block_icon_scale", "Icon Scale", 0.65, 1.55, 0.01],
+	{"key": "blocks", "title": "CHARACTER SPRITES", "specs": [
+		["block_icon_height", "Enemy Sprite Y", 0.35, 1.75, 0.01],
+		["boss_icon_height", "Boss Sprite Y", 0.35, 1.95, 0.01],
+		["block_icon_scale", "Sprite Scale", 0.65, 1.55, 0.01],
 	]},
 	{"key": "board", "title": "BOARD / BALL", "specs": [
 		["ball_speed", "Orb Speed", 4.0, 24.0, 0.5],
@@ -75,17 +75,19 @@ const SHOOT_Z := 6.55
 const PARTY_FRONT_Z := 7.0
 const PARTY_BACK_Z := 7.85
 const BALL_COLLISION_STEP := 0.12
-# Anti-stall presets: {speed-up start (s), speed-up rate (per s, capped 4x),
-# hard-cap force-land time (s; 0 = none)}.
+# Anti-stall presets: {speed-up start (s), speed-up rate (per s, capped 4x)}.
 const STALL_PRESETS := {
-	"off": {"start": 0.0, "speedup": 0.0, "hardcap": 0.0},
-	"standard": {"start": 3.0, "speedup": 1.0, "hardcap": 8.0},
-	"fast": {"start": 2.0, "speedup": 2.0, "hardcap": 5.0},
-	"soft": {"start": 4.0, "speedup": 0.5, "hardcap": 12.0},
+	"off": {"start": 0.0, "speedup": 0.0},
+	"standard": {"start": 3.0, "speedup": 1.0},
+	"fast": {"start": 2.0, "speedup": 2.0},
+	"soft": {"start": 4.0, "speedup": 0.5},
 }
 const COLLISION_EPSILON := 0.001
-const BLOCK_SIZE := Vector2(1.18, 0.82)
-const BOSS_BLOCK_SIZE := Vector2(2.68, 1.05)
+const COLLISION_SEPARATION := 0.02
+const BLOCK_HIT_COOLDOWN := 0.08
+const QUEST_BLOCK_SCENE := preload("res://scenes/quest_block.tscn")
+const BLOCK_COLLISION_LAYER := 2
+const BALL_CENTER_Y := 0.18
 const AIM_DOTS := 10
 const MIN_SHOT_DY := 0.2
 const LEVEL_DROP := 1.28
@@ -152,10 +154,10 @@ var catch_active := false
 var catch_target_x := 0.0
 var resolving_shot := false
 var shot_time := 0.0
+var last_damaged_block: Dictionary = {}
 var stall_preset := "standard"
 var stall_start := 3.0
 var stall_speedup := 1.0
-var stall_hardcap := 8.0
 var stall_preset_buttons := {}
 var aiming := true
 var score := 2057
@@ -168,6 +170,7 @@ var camera_3d: Camera3D
 var gauge_layer: CanvasLayer
 var gauge_shader: Shader
 var ball_mesh: MeshInstance3D
+var ball_cast: ShapeCast3D
 var catch_marker: MeshInstance3D
 var left_rail: MeshInstance3D
 var right_rail: MeshInstance3D
@@ -175,6 +178,8 @@ var top_rail: MeshInstance3D
 var board_tile_grid: Node3D
 var aim_markers: Array[MeshInstance3D] = []
 var party_nodes: Array[Node3D] = []
+var score_panel: PanelContainer
+var shots_panel: PanelContainer
 var score_label: Label
 var level_label: Label
 var combo_label: Label
@@ -185,6 +190,7 @@ var debug_panel: PanelContainer
 var debug_value_inputs := {}
 var debug_sliders := {}
 var icon_texture: Texture2D
+var party_texture: Texture2D
 var camera_tilt_deg := DEFAULT_CAMERA_TILT_DEG
 var camera_yaw_deg := DEFAULT_CAMERA_YAW_DEG
 var camera_fov_deg := DEFAULT_CAMERA_FOV_DEG
@@ -214,7 +220,8 @@ var debug_section_open := {}
 
 
 func _ready() -> void:
-	icon_texture = load("res://assets/generated/quest_icons.png")
+	icon_texture = load("res://assets/generated/enemy_characters.png")
+	party_texture = load("res://assets/generated/party_characters.png")
 	_setup_world()
 	_spawn_blocks()
 	_setup_ui()
@@ -275,16 +282,17 @@ func _setup_world() -> void:
 	var environment := WorldEnvironment.new()
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color("#150f0c")
+	env.background_color = Color("#120805")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("#f7d59a")
-	env.ambient_light_energy = 0.55
+	env.ambient_light_color = Color("#d49a55")
+	env.ambient_light_energy = 0.42
 	environment.environment = env
 	add_child(environment)
 
 	var light := DirectionalLight3D.new()
-	light.rotation_degrees = Vector3(-58.0, -18.0, 0.0)
-	light.light_energy = 2.2
+	light.rotation_degrees = Vector3(-52.0, -22.0, 0.0)
+	light.light_energy = 2.55
+	light.light_color = Color("#ffd39a")
 	add_child(light)
 
 	camera_3d = Camera3D.new()
@@ -301,14 +309,14 @@ func _setup_world() -> void:
 		var marker := MeshInstance3D.new()
 		marker.name = "AimDot_%02d" % i
 		var dot_mesh := SphereMesh.new()
-		dot_mesh.radius = 0.07
-		dot_mesh.height = 0.14
+		dot_mesh.radius = 0.095
+		dot_mesh.height = 0.19
 		marker.mesh = dot_mesh
 		var dot_mat := StandardMaterial3D.new()
-		dot_mat.albedo_color = Color("#ffd45a")
+		dot_mat.albedo_color = Color("#fff3a2")
 		dot_mat.emission_enabled = true
-		dot_mat.emission = Color("#ffba35")
-		dot_mat.emission_energy_multiplier = 1.4
+		dot_mat.emission = Color("#ffb32a")
+		dot_mat.emission_energy_multiplier = 2.4
 		marker.material_override = dot_mat
 		add_child(marker)
 		aim_markers.append(marker)
@@ -326,6 +334,17 @@ func _setup_world() -> void:
 	ball_mat.emission_energy_multiplier = 0.7
 	ball_mesh.material_override = ball_mat
 	add_child(ball_mesh)
+
+	ball_cast = ShapeCast3D.new()
+	ball_cast.name = "OrbShapeCast"
+	var ball_shape := SphereShape3D.new()
+	ball_shape.radius = ball_radius
+	ball_cast.shape = ball_shape
+	ball_cast.enabled = true
+	ball_cast.collide_with_areas = false
+	ball_cast.collide_with_bodies = true
+	ball_cast.collision_mask = BLOCK_COLLISION_LAYER
+	add_child(ball_cast)
 
 	catch_marker = MeshInstance3D.new()
 	catch_marker.name = "CatchMarker"
@@ -357,11 +376,28 @@ func _create_3d_board_map() -> void:
 	map_root.name = "BoardGameTable3D"
 	add_child(map_root)
 
+	var table := _make_box_node(
+		"DarkWoodTable",
+		Vector3(BOARD_WIDTH + 4.2, 0.18, BOARD_HEIGHT + 4.2),
+		Vector3(0.0, -0.82, 0.0),
+		Color("#1f0f08")
+	)
+	map_root.add_child(table)
+	for i in range(7):
+		var plank_x := lerpf(-6.4, 6.4, float(i) / 6.0)
+		var plank := _make_box_node(
+			"TablePlank_%02d" % i,
+			Vector3(1.72, 0.035, BOARD_HEIGHT + 4.55),
+			Vector3(plank_x, -0.70, 0.0),
+			Color("#2b160b").lerp(Color("#5a2c13"), 0.22 + 0.08 * float(i % 3))
+		)
+		map_root.add_child(plank)
+
 	var base := _make_box_node(
 		"WoodenTrayBase",
-		Vector3(BOARD_WIDTH + 1.2, 0.42, BOARD_HEIGHT + 1.1),
-		Vector3(0.0, -0.42, 0.0),
-		Color("#3b2418")
+		Vector3(BOARD_WIDTH + 1.35, 0.52, BOARD_HEIGHT + 1.25),
+		Vector3(0.0, -0.44, 0.0),
+		Color("#4a2611")
 	)
 	map_root.add_child(base)
 
@@ -373,42 +409,49 @@ func _create_3d_board_map() -> void:
 	map_root.add_child(board_tile_grid)
 	for row in range(GRID_ROWS):
 		for col in range(ROW_X.size()):
-			var tile_color := Color("#5d4a3a").lightened(0.04) if (row + col) % 2 == 0 else Color("#5d4a3a").darkened(0.035)
+			var tile_color := Color("#4a2d1b").lightened(0.045) if (row + col) % 2 == 0 else Color("#3b2416").darkened(0.02)
 			var tile := _make_box_node(
 				"StoneTile_%02d_%02d" % [row, col],
-				Vector3(GRID_COL_WIDTH - 0.045, 0.08, GRID_ROW_HEIGHT - 0.045),
-				Vector3(float(ROW_X[col]), -0.16, float(row) * GRID_ROW_HEIGHT),
+				Vector3(GRID_COL_WIDTH - 0.055, 0.11, GRID_ROW_HEIGHT - 0.055),
+				Vector3(float(ROW_X[col]), -0.12, float(row) * GRID_ROW_HEIGHT),
 				tile_color
 			)
 			board_tile_grid.add_child(tile)
 	_apply_grid_offset()
 	_apply_spread()
 
-	var rail_color := Color("#6b3f22")
-	left_rail = _make_box_node("LeftWoodRail", Vector3(0.48, 0.72, BOARD_HEIGHT + 1.25), Vector3(-BOARD_WIDTH * 0.5 - 0.48, 0.06, 0.0), rail_color)
+	var rail_color := Color("#7a3e17")
+	left_rail = _make_box_node("LeftWoodRail", Vector3(0.64, 0.86, BOARD_HEIGHT + 1.55), Vector3(-BOARD_WIDTH * 0.5 - 0.55, 0.05, 0.0), rail_color)
 	map_root.add_child(left_rail)
-	right_rail = _make_box_node("RightWoodRail", Vector3(0.48, 0.72, BOARD_HEIGHT + 1.25), Vector3(BOARD_WIDTH * 0.5 + 0.48, 0.06, 0.0), rail_color)
+	right_rail = _make_box_node("RightWoodRail", Vector3(0.64, 0.86, BOARD_HEIGHT + 1.55), Vector3(BOARD_WIDTH * 0.5 + 0.55, 0.05, 0.0), rail_color)
 	map_root.add_child(right_rail)
-	top_rail = _make_box_node("TopWoodRail", Vector3(BOARD_WIDTH + 1.45, 0.72, 0.5), Vector3(0.0, 0.06, BOARD_TOP - 0.48), rail_color.lightened(0.05))
+	top_rail = _make_box_node("TopWoodRail", Vector3(BOARD_WIDTH + 1.85, 0.86, 0.68), Vector3(0.0, 0.05, BOARD_TOP - 0.55), rail_color.lightened(0.08))
 	map_root.add_child(top_rail)
-	map_root.add_child(_make_box_node("BottomWoodRail", Vector3(BOARD_WIDTH + 1.45, 0.72, 0.5), Vector3(0.0, 0.06, BOARD_BOTTOM + 0.48), rail_color.lightened(0.05)))
+	map_root.add_child(_make_box_node("BottomWoodRail", Vector3(BOARD_WIDTH + 1.85, 0.86, 0.68), Vector3(0.0, 0.05, BOARD_BOTTOM + 0.55), rail_color.lightened(0.08)))
 
-	var metal_color := Color("#b77934")
+	var metal_color := Color("#d78a2f")
 	for corner in [
-		Vector2(-BOARD_WIDTH * 0.5 - 0.48, BOARD_TOP - 0.48),
-		Vector2(BOARD_WIDTH * 0.5 + 0.48, BOARD_TOP - 0.48),
-		Vector2(-BOARD_WIDTH * 0.5 - 0.48, BOARD_BOTTOM + 0.48),
-		Vector2(BOARD_WIDTH * 0.5 + 0.48, BOARD_BOTTOM + 0.48),
+		Vector2(-BOARD_WIDTH * 0.5 - 0.55, BOARD_TOP - 0.55),
+		Vector2(BOARD_WIDTH * 0.5 + 0.55, BOARD_TOP - 0.55),
+		Vector2(-BOARD_WIDTH * 0.5 - 0.55, BOARD_BOTTOM + 0.55),
+		Vector2(BOARD_WIDTH * 0.5 + 0.55, BOARD_BOTTOM + 0.55),
 	]:
-		var cap := _make_cylinder_node("BrassCornerCap", 0.28, 0.16, Vector3(corner.x, 0.52, corner.y), metal_color)
+		var cap := _make_cylinder_node("BrassCornerCap", 0.34, 0.18, Vector3(corner.x, 0.58, corner.y), metal_color)
 		map_root.add_child(cap)
 
-	for x in [-4.2, 4.2]:
-		for z in [-6.9, 7.1]:
-			var leaf := _make_cylinder_node("MossPatch", 0.18, 0.035, Vector3(x, 0.56, z), Color("#355f2b"))
+	for x in [-4.65, -3.9, 3.9, 4.65]:
+		for z in [-7.3, 7.3]:
+			var leaf := _make_cylinder_node("IvyPatch", 0.16, 0.035, Vector3(x, 0.62, z), Color("#315d25"))
 			leaf.scale.x = 1.7
 			leaf.scale.z = 0.7
 			map_root.add_child(leaf)
+
+	for prop in [
+		{"name": "MapBook", "size": Vector3(1.25, 0.18, 1.0), "pos": Vector3(-6.0, -0.46, -6.7), "color": Color("#7b5833")},
+		{"name": "SpellTome", "size": Vector3(1.2, 0.24, 1.5), "pos": Vector3(6.1, -0.43, -5.9), "color": Color("#1d2933")},
+		{"name": "SideChest", "size": Vector3(1.0, 0.42, 0.75), "pos": Vector3(-6.05, -0.35, 5.3), "color": Color("#5b2b12")},
+	]:
+		map_root.add_child(_make_box_node(String(prop["name"]), prop["size"], prop["pos"], prop["color"]))
 
 
 func _make_box_node(node_name: String, size: Vector3, pos: Vector3, color: Color) -> MeshInstance3D:
@@ -444,15 +487,19 @@ func _setup_ui() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(root)
 
-	score_label = _make_label(Vector2.ZERO, 32, Color.WHITE)
-	level_label = _make_label(Vector2.ZERO, 32, Color.WHITE)
-	combo_label = _make_label(Vector2.ZERO, 46, Color("#ffd34d"))
+	score_panel = _make_ui_wood_panel()
+	shots_panel = _make_ui_wood_panel()
+	score_label = _make_label(Vector2.ZERO, 42, Color.WHITE)
+	level_label = _make_label(Vector2.ZERO, 22, Color.WHITE)
+	combo_label = _make_label(Vector2.ZERO, 54, Color("#ffc329"))
 	party_label = _make_label(Vector2.ZERO, 26, Color.WHITE)
 	status_label = _make_label(Vector2.ZERO, 18, Color("#e9d7b5"))
 	time_state_label = _make_label(Vector2.ZERO, 30, Color("#7adfff"))
 	time_state_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	root.add_child(score_label)
-	root.add_child(level_label)
+	root.add_child(score_panel)
+	root.add_child(shots_panel)
+	score_panel.add_child(score_label)
+	shots_panel.add_child(level_label)
 	root.add_child(combo_label)
 	root.add_child(party_label)
 	root.add_child(status_label)
@@ -465,10 +512,25 @@ func _make_label(pos: Vector2, size: int, color: Color) -> Label:
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_font_size_override("font_size", size)
 	label.add_theme_color_override("font_color", color)
-	label.add_theme_color_override("font_shadow_color", Color("#000000cc"))
-	label.add_theme_constant_override("shadow_offset_x", 3)
-	label.add_theme_constant_override("shadow_offset_y", 3)
+	label.add_theme_color_override("font_shadow_color", Color("#000000e6"))
+	label.add_theme_constant_override("shadow_offset_x", 4)
+	label.add_theme_constant_override("shadow_offset_y", 4)
+	label.add_theme_color_override("font_outline_color", Color("#1b0b04"))
+	label.add_theme_constant_override("outline_size", maxi(2, int(size * 0.08)))
 	return label
+
+
+func _make_ui_wood_panel() -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("#2d170b")
+	style.border_color = Color("#c77925")
+	style.set_border_width_all(4)
+	style.set_corner_radius_all(8)
+	style.set_content_margin_all(10)
+	panel.add_theme_stylebox_override("panel", style)
+	return panel
 
 
 func _setup_debug_panel() -> void:
@@ -647,7 +709,6 @@ func _apply_stall_preset(key: String) -> void:
 	var p: Dictionary = STALL_PRESETS[key]
 	stall_start = float(p["start"])
 	stall_speedup = float(p["speedup"])
-	stall_hardcap = float(p["hardcap"])
 	_update_stall_preset_buttons()
 
 
@@ -891,6 +952,8 @@ func _apply_ball_radius() -> void:
 		var sphere := ball_mesh.mesh as SphereMesh
 		sphere.radius = ball_radius
 		sphere.height = ball_radius * 2.0
+	if is_instance_valid(ball_cast) and ball_cast.shape is SphereShape3D:
+		(ball_cast.shape as SphereShape3D).radius = ball_radius
 
 
 func _sync_debug_controls() -> void:
@@ -1001,19 +1064,28 @@ func _update_responsive_layout() -> void:
 
 	var size: Vector2 = get_viewport().get_visible_rect().size
 	var pad: float = maxf(14.0, size.x * 0.035)
+	if score_panel:
+		score_panel.position = Vector2(pad, pad)
+		score_panel.size = Vector2(230.0, 86.0)
 	if score_label:
-		score_label.position = Vector2(pad, pad)
-		score_label.size = Vector2(maxf(160.0, size.x * 0.42), 48.0)
+		score_label.position = Vector2(8.0, 5.0)
+		score_label.size = Vector2(210.0, 68.0)
+	if shots_panel:
+		shots_panel.size = Vector2(170.0, 92.0)
+		shots_panel.position = Vector2(size.x - shots_panel.size.x - pad, pad)
 	if level_label:
-		level_label.size = Vector2(maxf(190.0, size.x * 0.42), 48.0)
-		level_label.position = Vector2(size.x - level_label.size.x - pad, pad)
-		level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		level_label.size = Vector2(150.0, 72.0)
+		level_label.position = Vector2(8.0, 4.0)
+		level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		level_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	if time_state_label:
 		time_state_label.size = Vector2(maxf(150.0, size.x * 0.42), 40.0)
-		time_state_label.position = Vector2(size.x - time_state_label.size.x - pad, pad + 50.0)
+		time_state_label.position = Vector2(size.x - time_state_label.size.x - pad, pad + 98.0)
 	if combo_label:
-		combo_label.size = Vector2(280.0, 70.0)
-		combo_label.position = Vector2(size.x * 0.5 - 130.0, size.y * 0.52)
+		combo_label.size = Vector2(360.0, 118.0)
+		combo_label.position = Vector2(size.x * 0.5 - 180.0, size.y * 0.56)
+		combo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		combo_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	if party_label:
 		party_label.size = Vector2(maxf(260.0, size.x - pad * 2.0), 42.0)
 		party_label.position = Vector2(pad, size.y - 88.0)
@@ -1042,7 +1114,6 @@ func _fit_camera_to_board(aspect: float) -> void:
 func _create_party_pawns() -> void:
 	for i in range(party.size()):
 		var member: Dictionary = party[i]
-		var member_color: Color = member["color"]
 		var pawn := Node3D.new()
 		pawn.name = "PartyPawn_%s" % member["name"]
 		add_child(pawn)
@@ -1059,29 +1130,17 @@ func _create_party_pawns() -> void:
 		base.material_override = _solid_material(Color("#3a2c24"))
 		pawn.add_child(base)
 
-		var body := MeshInstance3D.new()
-		var body_mesh := CapsuleMesh.new()
-		body_mesh.radius = 0.22
-		body_mesh.height = 0.72
-		body.mesh = body_mesh
-		body.position.y = 0.52
-		body.material_override = _solid_material(member_color)
-		pawn.add_child(body)
-
-		var head := MeshInstance3D.new()
-		var head_mesh := SphereMesh.new()
-		head_mesh.radius = 0.18
-		head_mesh.height = 0.36
-		head.mesh = head_mesh
-		head.position.y = 0.96
-		head.material_override = _solid_material(Color("#ffd7a0"))
-		pawn.add_child(head)
-
-		var hat := MeshInstance3D.new()
-		hat.mesh = _party_hat_mesh(i)
-		hat.position.y = 1.17
-		hat.material_override = _solid_material(member_color.lightened(0.12))
-		pawn.add_child(hat)
+		var character := Sprite3D.new()
+		character.name = "CharacterSprite"
+		character.texture = party_texture
+		character.hframes = 3
+		character.vframes = 1
+		character.frame = i
+		character.pixel_size = 0.00175
+		character.position = Vector3(0.0, 0.88, 0.02)
+		character.double_sided = true
+		character.no_depth_test = false
+		pawn.add_child(character)
 
 		party_nodes.append(pawn)
 
@@ -1091,26 +1150,6 @@ func _solid_material(color: Color) -> Material:
 	mat.albedo_color = color
 	mat.roughness = 0.82
 	return mat
-
-
-func _party_hat_mesh(index: int) -> Mesh:
-	if index == 0:
-		var cone := CylinderMesh.new()
-		cone.top_radius = 0.02
-		cone.bottom_radius = 0.22
-		cone.height = 0.36
-		cone.radial_segments = 20
-		return cone
-	if index == 1:
-		var helm := BoxMesh.new()
-		helm.size = Vector3(0.42, 0.18, 0.32)
-		return helm
-	var hood := CylinderMesh.new()
-	hood.top_radius = 0.12
-	hood.bottom_radius = 0.2
-	hood.height = 0.26
-	hood.radial_segments = 3
-	return hood
 
 
 func _update_party_visuals() -> void:
@@ -1145,6 +1184,9 @@ func _update_party_visuals() -> void:
 			target_scale = Vector3(0.82, 0.82, 0.82)
 		pawn.position = pawn.position.lerp(Vector3(target_x, 0.0, target_z), 0.24)
 		pawn.scale = pawn.scale.lerp(target_scale, 0.24)
+		var character := pawn.get_node_or_null("CharacterSprite") as Sprite3D
+		if is_instance_valid(character):
+			_face_camera(character)
 
 
 func _next_party(index: int) -> int:
@@ -1206,8 +1248,8 @@ func _frontmost_block_edge() -> float:
 	# Returns -INF when no blocks remain, so the path is considered clear.
 	var edge := -INF
 	for block in blocks:
-		var half_y := Vector2(block["size"]).y * 0.5
-		edge = maxf(edge, Vector2(block["pos"]).y + half_y + ball_radius)
+		var front_extent := _get_block_front_extent(block)
+		edge = maxf(edge, Vector2(block["pos"]).y + front_extent + ball_radius)
 	return edge
 
 
@@ -1294,19 +1336,40 @@ func _apply_spread() -> void:
 	# pedestal — the block footprint (collision + body/cap visual) — is resized by
 	# that shape's own scale (rank_scales), which is what changes the gap.
 	for block in blocks:
-		var s := _rank_scale(String(block["rank"]))
-		var base: Vector2 = block.get("base_size", BLOCK_SIZE)
-		block["size"] = Vector2(base.x * s, base.y * s)
-		var body := block.get("body") as MeshInstance3D
-		if is_instance_valid(body):
-			body.scale = Vector3(s, 1.0, s)
-		var cap := block.get("top_cap") as MeshInstance3D
-		if is_instance_valid(cap):
-			cap.scale = Vector3(s, 1.0, s)
+		var rank := String(block["rank"])
+		var s := _rank_scale(rank)
+		var base := _get_block_footprint_size(block, 1.0)
+		block["base_size"] = base
+		block["size"] = base * s
+		var node := block.get("node") as QuestBlock
+		if is_instance_valid(node):
+			node.set_visual_scale(s)
 
 
 func _rank_scale(rank: String) -> float:
 	return float(rank_scales.get(rank, 1.0))
+
+
+func _get_block_footprint_size(block: Dictionary, visual_scale: float) -> Vector2:
+	var node := block.get("node") as QuestBlock
+	if is_instance_valid(node):
+		return node.footprint_size(visual_scale)
+	return Vector2.ZERO
+
+
+func _get_block_front_extent(block: Dictionary) -> float:
+	var node := block.get("node") as QuestBlock
+	if is_instance_valid(node):
+		return node.collision_front_extent(_rank_scale(String(block["rank"])))
+	return 0.0
+
+
+func _get_block_icon_height(rank: String) -> float:
+	return boss_icon_height if rank == "boss" else block_icon_height
+
+
+func _get_block_gauge_base_y(rank: String) -> float:
+	return 1.14 if rank == "boss" else 0.98
 
 
 func _apply_wall_width() -> void:
@@ -1330,16 +1393,18 @@ func _update_debug_metrics() -> void:
 	if not is_instance_valid(debug_metrics_label):
 		return
 	var ball_d := ball_radius * 2.0
-	# Grid spacing is fixed; the gap depends on the platform footprint. Use the
-	# largest non-boss shape scale (tightest gap) as the reference.
-	var rep := 0.0
-	for r in ["circle", "square", "triangle", "diamond", "chest"]:
-		rep = maxf(rep, _rank_scale(r))
-	var col_gap := absf(float(ROW_X[1]) - float(ROW_X[0])) - float(BLOCK_SIZE.x) * rep
-	var row_gap := float(LEVEL_DROP) - float(BLOCK_SIZE.y) * rep
-	var outer_edge := float(ROW_X[ROW_X.size() - 1]) + float(BLOCK_SIZE.x) * 0.5 * rep
+	# Grid spacing is fixed; the gap depends on the actual visual footprint.
+	var max_width := 0.0
+	var max_height := 0.0
+	for block in blocks:
+		var footprint := _get_block_footprint_size(block, _rank_scale(String(block["rank"])))
+		max_width = maxf(max_width, footprint.x)
+		max_height = maxf(max_height, footprint.y)
+	var col_gap := absf(float(ROW_X[1]) - float(ROW_X[0])) - max_width
+	var row_gap := float(LEVEL_DROP) - max_height
+	var outer_edge := float(ROW_X[ROW_X.size() - 1]) + max_width * 0.5
 	var side_gap := wall_half_width - outer_edge
-	var top_gap := (BOARD_TOP + top_pad - float(BLOCK_SIZE.y) * 0.5 * rep) - wall_top_z
+	var top_gap := (BOARD_TOP + top_pad - max_height * 0.5) - wall_top_z
 	debug_metrics_label.text = "Orb d %.2f\nCol gap %.2f (%s)\nRow gap %.2f (%s)\nSide gap %.2f (%s)\nTop gap %.2f (%s)" % [
 		ball_d,
 		col_gap, _gap_mark(col_gap, ball_d),
@@ -1448,8 +1513,8 @@ func _advance_level() -> void:
 func _clear_blocks_past_player_area() -> void:
 	for block in blocks.duplicate():
 		var pos: Vector2 = block["pos"]
-		var half_height := float(Vector2(block["size"]).y) * 0.5
-		if pos.y + half_height >= danger_z:
+		var front_extent := _get_block_front_extent(block)
+		if pos.y + front_extent >= danger_z:
 			blocks.erase(block)
 			_free_block_gauge(block)
 			var node := block.get("node") as Node3D
@@ -1468,55 +1533,27 @@ func _has_block_reached_player_area() -> bool:
 	# player area. danger_z defaults to the firing line (SHOOT_Z) = the player area.
 	for block in blocks:
 		var pos: Vector2 = block["pos"]
-		var half_height := float(Vector2(block["size"]).y) * 0.5
-		if pos.y + half_height >= danger_z:
+		var front_extent := _get_block_front_extent(block)
+		if pos.y + front_extent >= danger_z:
 			return true
 	return false
 
 
 func _create_block(pos_2d: Vector2, hp: int, rank: String, icon_frame: int, col: int = 0, row: int = 0) -> Dictionary:
-	var root := Node3D.new()
+	var root := QUEST_BLOCK_SCENE.instantiate() as QuestBlock
 	root.name = "QuestBlock_%s_%d" % [rank, hp]
 	root.position = Vector3(pos_2d.x, 0.0, pos_2d.y)
 	root.add_to_group("block_node")
 	add_child(root)
 
 	var s := _rank_scale(rank)
-	var body := MeshInstance3D.new()
-	body.mesh = _make_block_mesh(rank)
-	body.material_override = _make_block_material(rank)
-	body.position.y = _get_block_body_y(rank)
-	body.rotation_degrees.y = _get_block_body_yaw(rank)
-	body.scale = Vector3(s, 1.0, s)
-	root.add_child(body)
-
-	var top_cap := MeshInstance3D.new()
-	top_cap.mesh = _make_block_top_cap_mesh(rank)
-	top_cap.material_override = _make_block_top_cap_material(rank)
-	top_cap.position.y = _get_block_top_cap_y(rank)
-	top_cap.rotation_degrees.y = _get_block_body_yaw(rank)
-	top_cap.scale = Vector3(s, 1.0, s)
-	root.add_child(top_cap)
-
-	var icon := Sprite3D.new()
-	icon.texture = icon_texture
-	icon.hframes = 4
-	icon.vframes = 3
-	icon.frame = icon_frame
-	icon.pixel_size = _get_block_icon_pixel_size(rank)
-	icon.position = _get_block_icon_position(rank)
-	icon.no_depth_test = true
-	icon.double_sided = true
-	root.add_child(icon)
+	root.setup(rank, icon_frame, icon_texture, s, _get_block_icon_pixel_size(rank), _get_block_icon_height(rank))
 
 	# HP gauge bar is a 3D billboard; the number is a 2D canvas Label. Both are
 	# placed/updated each frame in _update_one_gauge_2d.
-	var base_size: Vector2 = BOSS_BLOCK_SIZE if rank == "boss" else BLOCK_SIZE
+	var base_size := root.footprint_size(1.0)
 	var block := {
 		"node": root,
-		"body": body,
-		"top_cap": top_cap,
-		"icon": icon,
 		"pos": pos_2d,
 		"hp": hp,
 		"max_hp": hp,
@@ -1524,116 +1561,11 @@ func _create_block(pos_2d: Vector2, hp: int, rank: String, icon_frame: int, col:
 		"col": col,
 		"row": row,
 		"base_size": base_size,
-		"size": Vector2(base_size.x * s, base_size.y * s),
+		"size": base_size * s,
 	}
 	_attach_gauge_2d(block)
 	_update_one_gauge_2d(block)
 	return block
-
-
-func _make_block_mesh(rank: String) -> Mesh:
-	# Each rank gets a distinct shape so the visuals match the debug names.
-	match rank:
-		"circle":
-			var cyl := CylinderMesh.new()
-			cyl.top_radius = 0.55
-			cyl.bottom_radius = 0.55
-			cyl.height = 0.34
-			cyl.radial_segments = 28
-			return cyl
-		"triangle":
-			var tri := CylinderMesh.new()
-			tri.top_radius = 0.66
-			tri.bottom_radius = 0.66
-			tri.height = 0.34
-			tri.radial_segments = 3
-			return tri
-		"diamond":
-			var dia := BoxMesh.new()
-			dia.size = Vector3(1.0, 0.34, 1.0)
-			return dia
-		"chest":
-			var chest := BoxMesh.new()
-			chest.size = Vector3(1.0, 0.42, 0.78)
-			return chest
-		"boss":
-			var boss := BoxMesh.new()
-			boss.size = Vector3(2.68, 0.42, 1.04)
-			return boss
-		_:
-			var box := BoxMesh.new()
-			box.size = Vector3(1.12, 0.34, 0.86)
-			return box
-
-
-func _make_block_top_cap_mesh(rank: String) -> Mesh:
-	# Cap follows the body shape (round/triangular cap for circle/triangle).
-	match rank:
-		"circle":
-			var cap := CylinderMesh.new()
-			cap.top_radius = 0.46
-			cap.bottom_radius = 0.46
-			cap.height = 0.08
-			cap.radial_segments = 28
-			return cap
-		"triangle":
-			var cap := CylinderMesh.new()
-			cap.top_radius = 0.54
-			cap.bottom_radius = 0.54
-			cap.height = 0.08
-			cap.radial_segments = 3
-			return cap
-		"boss":
-			var cap := BoxMesh.new()
-			cap.size = Vector3(2.42, 0.08, 0.86)
-			return cap
-		"diamond":
-			var cap := BoxMesh.new()
-			cap.size = Vector3(0.84, 0.08, 0.84)
-			return cap
-		"chest":
-			var cap := BoxMesh.new()
-			cap.size = Vector3(0.82, 0.08, 0.6)
-			return cap
-		_:
-			var cap := BoxMesh.new()
-			cap.size = Vector3(0.92, 0.08, 0.66)
-			return cap
-
-
-func _make_block_material(rank: String) -> Material:
-	var mat := StandardMaterial3D.new()
-	match rank:
-		"circle":
-			mat.albedo_color = Color("#b99a63")
-		"triangle":
-			mat.albedo_color = Color("#c5a973")
-		"diamond":
-			mat.albedo_color = Color("#b58cce")
-		"boss":
-			mat.albedo_color = Color("#d0b27a")
-		"chest":
-			mat.albedo_color = Color("#c79b58")
-		_:
-			mat.albedo_color = Color("#c2a56f")
-	mat.metallic = 0.0
-	mat.roughness = 0.9
-	return mat
-
-
-func _make_block_top_cap_material(rank: String) -> Material:
-	var mat := StandardMaterial3D.new()
-	match rank:
-		"diamond":
-			mat.albedo_color = Color("#d6b5ee")
-		"boss":
-			mat.albedo_color = Color("#e4cf9d")
-		"chest":
-			mat.albedo_color = Color("#e0ba76")
-		_:
-			mat.albedo_color = Color("#e0c68e")
-	mat.roughness = 0.86
-	return mat
 
 
 func _gauge_color_for_ratio(ratio: float) -> Color:
@@ -1682,13 +1614,13 @@ func _update_one_gauge_2d(block: Dictionary) -> void:
 		return
 	var rank := String(block["rank"])
 	var pos: Vector2 = block["pos"]
-	var head_y := boss_icon_height if rank == "boss" else block_icon_height
+	var gauge_base_y := _get_block_gauge_base_y(rank)
 	var ratio := clampf(float(int(block["hp"])) / float(maxi(1, int(block.get("max_hp", 1)))), 0.0, 1.0)
 
 	# 3D billboard bar (perspective): sized in world units, faces the camera.
 	var gauge := block.get("gauge") as Node3D
 	if is_instance_valid(gauge):
-		gauge.position = Vector3(pos.x, head_y + gauge_offset_y, pos.y)
+		gauge.position = Vector3(pos.x, gauge_base_y + gauge_offset_y, pos.y)
 		gauge.global_rotation = camera_3d.global_rotation
 		var w := gauge_height * (7.0 if rank == "boss" else 4.5)
 		var bar := block.get("gauge_bar") as MeshInstance3D
@@ -1701,7 +1633,7 @@ func _update_one_gauge_2d(block: Dictionary) -> void:
 	# 2D canvas number (constant pixel size, independent position).
 	var number := block.get("gauge_number") as Label
 	if is_instance_valid(number):
-		var nworld := Vector3(pos.x, head_y + number_offset_y, pos.y)
+		var nworld := Vector3(pos.x, gauge_base_y + number_offset_y, pos.y)
 		if camera_3d.is_position_behind(nworld):
 			number.visible = false
 		else:
@@ -1724,49 +1656,26 @@ func _free_block_gauge(block: Dictionary) -> void:
 		number.queue_free()
 
 
-func _get_block_body_y(rank: String) -> float:
-	return 0.21 if rank == "boss" else 0.17
-
-
-func _get_block_body_yaw(rank: String) -> float:
-	match rank:
-		"diamond":
-			return 45.0
-		"triangle":
-			return 180.0  # point a flat edge toward the player, vertex up-board
-		_:
-			return 0.0
-
-
-func _get_block_top_cap_y(rank: String) -> float:
-	return 0.46 if rank == "boss" else 0.38
-
-
 func _get_block_icon_pixel_size(rank: String) -> float:
-	var base_size := 0.0033 if rank == "boss" else 0.00255
+	var base_size := 0.0048 if rank == "boss" else 0.0039
 	return base_size * block_icon_scale
-
-
-func _get_block_icon_position(rank: String) -> Vector3:
-	return Vector3(0.0, boss_icon_height if rank == "boss" else block_icon_height, 0.03)
 
 
 func _update_block_visual_layout() -> void:
 	for block in blocks:
 		var rank := String(block["rank"])
-		var icon := block.get("icon") as Sprite3D
-		if is_instance_valid(icon):
-			icon.pixel_size = _get_block_icon_pixel_size(rank)
-			icon.position = _get_block_icon_position(rank)
+		var node := block.get("node") as QuestBlock
+		if is_instance_valid(node):
+			node.update_icon_layout(_get_block_icon_pixel_size(rank), _get_block_icon_height(rank))
 
 
 func _update_block_billboards() -> void:
 	if not is_instance_valid(camera_3d):
 		return
 	for block in blocks:
-		var icon := block.get("icon") as Sprite3D
-		if is_instance_valid(icon):
-			_face_camera(icon)
+		var node := block.get("node") as QuestBlock
+		if is_instance_valid(node) and is_instance_valid(node.icon):
+			_face_camera(node.icon)
 		_update_one_gauge_2d(block)
 
 
@@ -1782,9 +1691,10 @@ func _reset_ball() -> void:
 	catch_active = false
 	resolving_shot = false
 	shot_time = 0.0
+	last_damaged_block = {}
 	aiming = not game_over
 	ball_mesh.visible = aiming
-	ball_mesh.position = Vector3(shooter_x, 0.45, SHOOT_Z)
+	ball_mesh.position = Vector3(shooter_x, BALL_CENTER_Y, SHOOT_Z)
 
 
 func _update_shooter_from_input() -> void:
@@ -1838,6 +1748,7 @@ func _fire_toward(dir: Vector2) -> void:
 	balls = [{"pos": Vector2(shooter_x, SHOOT_Z), "vel": dir * ball_speed}]
 	resolving_shot = true
 	shot_time = 0.0
+	last_damaged_block = {}
 
 
 func _update_balls(delta: float) -> void:
@@ -1857,13 +1768,9 @@ func _update_balls(delta: float) -> void:
 	var vel: Vector2 = ball["vel"]
 
 	# Anti-stall (preset-driven): after a while speed the orb up so slow bounce
-	# loops resolve faster, and hard-cap the shot so any loop always terminates.
+	# loops resolve faster without forcibly ending the shot.
 	shot_time += delta
 	if stall_preset != "off":
-		if stall_hardcap > 0.0 and shot_time >= stall_hardcap:
-			shooter_x = clampf(pos.x, -wall_half_width + ball_radius, wall_half_width - ball_radius)
-			balls.clear()
-			return
 		if shot_time > stall_start and vel.length() > 0.0:
 			var target := ball_speed * clampf(1.0 + (shot_time - stall_start) * stall_speedup, 1.0, 4.0)
 			if vel.length() < target:
@@ -1879,12 +1786,15 @@ func _update_balls(delta: float) -> void:
 		if pos.x < -wall_half_width + ball_radius:
 			pos.x = -wall_half_width + ball_radius
 			vel.x = absf(vel.x)
+			last_damaged_block = {}
 		if pos.x > wall_half_width - ball_radius:
 			pos.x = wall_half_width - ball_radius
 			vel.x = -absf(vel.x)
+			last_damaged_block = {}
 		if pos.y < wall_top_z:
 			pos.y = wall_top_z
 			vel.y = absf(vel.y)
+			last_damaged_block = {}
 		# The ball "lands" the moment its collision area passes the player line
 		# (danger_z), on the way down — not all the way at the floor. Record the
 		# exact x at that crossing so the next shot / catcher line up with it.
@@ -1893,94 +1803,90 @@ func _update_balls(delta: float) -> void:
 			var drop := pos.y - previous_pos.y
 			var t := (landing_y - previous_pos.y) / drop if drop > 0.0 else 1.0
 			shooter_x = lerpf(previous_pos.x, pos.x, t)
+			last_damaged_block = {}
 			balls.clear()
 			return
 
-		for block in blocks:
-			var collision := _get_ball_block_collision(previous_pos, pos, block)
-			if bool(collision["hit"]):
-				var normal := Vector2(collision["normal"])
-				pos = Vector2(collision["pos"])
-				if absf(normal.x) > 0.0:
-					vel.x *= -1.0
-				if absf(normal.y) > 0.0:
-					vel.y *= -1.0
-				_damage_block(block)
-				break
+		var collision := _get_ball_block_collision(previous_pos, pos)
+		if bool(collision["hit"]):
+			var normal := Vector2(collision["normal"])
+			pos = Vector2(collision["pos"])
+			vel = _bounce_velocity(vel, normal)
+			_try_damage_block(collision["block"])
 
 	ball["pos"] = pos
 	ball["vel"] = vel
 	balls[0] = ball
-	ball_mesh.position = Vector3(pos.x, 0.52, pos.y)
+	ball_mesh.position = Vector3(pos.x, BALL_CENTER_Y, pos.y)
 
 
-func _get_ball_block_collision(previous_pos: Vector2, pos: Vector2, block: Dictionary) -> Dictionary:
-	var half := Vector2(block["size"]) * 0.5 + Vector2(ball_radius, ball_radius)
-	var block_pos := Vector2(block["pos"])
-	var local := pos - block_pos
-	var normal := _get_swept_block_normal(previous_pos - block_pos, local, half)
-	if normal == Vector2.ZERO:
-		if absf(local.x) > half.x or absf(local.y) > half.y:
-			return {"hit": false}
-		normal = _get_penetration_normal(local, half)
+func _get_ball_block_collision(previous_pos: Vector2, pos: Vector2) -> Dictionary:
+	if not is_instance_valid(ball_cast):
+		return {"hit": false}
 
-	var corrected_pos := pos
-	if normal.x < 0.0:
-		corrected_pos.x = block_pos.x - half.x - COLLISION_EPSILON
-	elif normal.x > 0.0:
-		corrected_pos.x = block_pos.x + half.x + COLLISION_EPSILON
-	elif normal.y < 0.0:
-		corrected_pos.y = block_pos.y - half.y - COLLISION_EPSILON
-	elif normal.y > 0.0:
-		corrected_pos.y = block_pos.y + half.y + COLLISION_EPSILON
+	var movement := pos - previous_pos
+	if movement.length_squared() <= 0.000001:
+		return {"hit": false}
 
+	ball_cast.global_position = Vector3(previous_pos.x, BALL_CENTER_Y, previous_pos.y)
+	ball_cast.target_position = Vector3(movement.x, 0.0, movement.y)
+	ball_cast.force_shapecast_update()
+	if not ball_cast.is_colliding():
+		return {"hit": false}
+
+	var collider := ball_cast.get_collider(0)
+	var block := _block_from_collider(collider)
+	if block.is_empty():
+		return {"hit": false}
+
+	var normal_3d := ball_cast.get_collision_normal(0)
+	var normal := Vector2(normal_3d.x, normal_3d.z)
+	if normal.length_squared() <= 0.000001:
+		normal = -movement.normalized()
+	else:
+		normal = normal.normalized()
+
+	var safe_fraction := clampf(ball_cast.get_closest_collision_safe_fraction(), 0.0, 1.0)
+	var corrected_pos := previous_pos.lerp(pos, safe_fraction) + normal * COLLISION_SEPARATION
 	return {
 		"hit": true,
 		"normal": normal,
 		"pos": corrected_pos,
+		"block": block,
 	}
 
 
-func _get_swept_block_normal(local_previous: Vector2, local_current: Vector2, half: Vector2) -> Vector2:
-	var movement := local_current - local_previous
-	if movement.length_squared() <= 0.0:
-		return Vector2.ZERO
-
-	var x_entry := -INF
-	var y_entry := -INF
-	var x_exit := INF
-	var y_exit := INF
-
-	if movement.x > 0.0:
-		x_entry = (-half.x - local_previous.x) / movement.x
-		x_exit = (half.x - local_previous.x) / movement.x
-	elif movement.x < 0.0:
-		x_entry = (half.x - local_previous.x) / movement.x
-		x_exit = (-half.x - local_previous.x) / movement.x
-
-	if movement.y > 0.0:
-		y_entry = (-half.y - local_previous.y) / movement.y
-		y_exit = (half.y - local_previous.y) / movement.y
-	elif movement.y < 0.0:
-		y_entry = (half.y - local_previous.y) / movement.y
-		y_exit = (-half.y - local_previous.y) / movement.y
-
-	var entry_time := maxf(x_entry, y_entry)
-	var exit_time := minf(x_exit, y_exit)
-	if entry_time > exit_time or entry_time < 0.0 or entry_time > 1.0:
-		return Vector2.ZERO
-
-	if x_entry > y_entry:
-		return Vector2.LEFT if movement.x > 0.0 else Vector2.RIGHT
-	return Vector2.UP if movement.y > 0.0 else Vector2.DOWN
+func _block_from_collider(collider: Object) -> Dictionary:
+	if collider == null or not (collider is Node):
+		return {}
+	var node := collider as Node
+	var quest_block := node.get_meta("quest_block", null) as QuestBlock
+	if not is_instance_valid(quest_block):
+		return {}
+	for block in blocks:
+		if block.get("node") == quest_block:
+			return block
+	return {}
 
 
-func _get_penetration_normal(local: Vector2, half: Vector2) -> Vector2:
-	var overlap_x := half.x - absf(local.x)
-	var overlap_y := half.y - absf(local.y)
-	if overlap_x < overlap_y:
-		return Vector2.LEFT if local.x < 0.0 else Vector2.RIGHT
-	return Vector2.UP if local.y < 0.0 else Vector2.DOWN
+func _bounce_velocity(velocity: Vector2, normal: Vector2) -> Vector2:
+	if normal.length_squared() <= 0.000001:
+		return velocity
+	var n := normal.normalized()
+	return velocity - 2.0 * velocity.dot(n) * n
+
+
+func _try_damage_block(block: Dictionary) -> void:
+	if block.is_empty() or not blocks.has(block):
+		return
+	var now := Time.get_ticks_msec() * 0.001
+	var last_hit := float(block.get("last_hit_time", -9999.0))
+	var same_contact := not last_damaged_block.is_empty() and block == last_damaged_block
+	if same_contact and now - last_hit < BLOCK_HIT_COOLDOWN:
+		return
+	block["last_hit_time"] = now
+	last_damaged_block = block
+	_damage_block(block)
 
 
 func _damage_block(block: Dictionary) -> void:
@@ -2027,9 +1933,9 @@ func _spawn_damage_text(pos_2d: Vector2, damage: int) -> void:
 
 
 func _animate_block_hit(block: Dictionary) -> void:
-	var block_node := block["node"] as Node3D
-	var body := block["body"] as MeshInstance3D
-	if block_node == null or body == null:
+	var block_node := block["node"] as QuestBlock
+	var body := block_node.body if is_instance_valid(block_node) else null
+	if not is_instance_valid(block_node) or body == null:
 		return
 
 	var flash := StandardMaterial3D.new()
@@ -2157,16 +2063,11 @@ func _update_aim_line() -> void:
 			vel.y = absf(vel.y)
 		if vel.y > 0.0 and pos.y >= landing_y:
 			break
-		for block in blocks:
-			var collision := _get_ball_block_collision(prev, pos, block)
-			if bool(collision["hit"]):
-				var normal := Vector2(collision["normal"])
-				pos = Vector2(collision["pos"])
-				if absf(normal.x) > 0.0:
-					vel.x *= -1.0
-				if absf(normal.y) > 0.0:
-					vel.y *= -1.0
-				break
+		var collision := _get_ball_block_collision(prev, pos)
+		if bool(collision["hit"]):
+			var normal := Vector2(collision["normal"])
+			pos = Vector2(collision["pos"])
+			vel = _bounce_velocity(vel, normal)
 		dist_acc += BALL_COLLISION_STEP
 		if dist_acc >= marker_spacing:
 			dist_acc -= marker_spacing
@@ -2180,9 +2081,9 @@ func _update_aim_line() -> void:
 
 
 func _update_ui() -> void:
-	score_label.text = "STAR %d" % score
-	level_label.text = "LV %d" % level
-	combo_label.text = ("COMBO x%d" % combo) if combo > 1 else ""
+	score_label.text = "★ %d" % score
+	level_label.text = "SHOTS\n%d" % maxi(1, 10 - active_party)
+	combo_label.text = ("COMBO\nx%d" % combo) if combo > 1 else ""
 	var member: Dictionary = party[active_party]
 	party_label.text = "%s  /  %s TURN" % [member["name"], member["class"]]
 	party_label.add_theme_color_override("font_color", member["color"])

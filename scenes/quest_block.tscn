@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://puzballpg_quest_block"]
+
+[ext_resource type="Script" path="res://scripts/quest_block.gd" id="1_block"]
+
+[node name="QuestBlock" type="Node3D"]
+script = ExtResource("1_block")

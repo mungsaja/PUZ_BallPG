@@ -1133,6 +1133,7 @@ func _create_party_pawns() -> void:
 		var character := Sprite3D.new()
 		character.name = "CharacterSprite"
 		character.texture = party_texture
+		character.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		character.hframes = 3
 		character.vframes = 1
 		character.frame = i

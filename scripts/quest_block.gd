@@ -8,6 +8,13 @@ const BODY_HEIGHT := 0.34
 const CHEST_BODY_HEIGHT := 0.42
 const BOSS_BODY_HEIGHT := 0.42
 
+# Blockbench/GLB source for the block body shapes (assets/blockbench/quest_blocks.bbmodel
+# is exported here). One mesh per rank, named by rank. Procedural fallback below keeps the
+# game runnable if the GLB is missing or not yet imported.
+const BLOCK_MODEL_PATH := "res://assets/models/quest_blocks.glb"
+static var _model_meshes: Dictionary = {}
+static var _model_loaded := false
+
 var rank := "square"
 var icon_frame := 0
 var icon_texture: Texture2D
@@ -102,6 +109,7 @@ func _create_visuals(visual_scale: float, icon_pixel_size: float, icon_height: f
 	icon = Sprite3D.new()
 	icon.name = "CharacterSprite"
 	icon.texture = icon_texture
+	icon.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	icon.hframes = 4
 	icon.vframes = 3
 	icon.frame = icon_frame
@@ -174,7 +182,39 @@ func _make_triangular_prism_shape(radius: float) -> ConvexPolygonShape3D:
 	return shape
 
 
+static func _ensure_model_loaded() -> void:
+	if _model_loaded:
+		return
+	_model_loaded = true
+	if not ResourceLoader.exists(BLOCK_MODEL_PATH):
+		return
+	var packed: PackedScene = load(BLOCK_MODEL_PATH)
+	if packed == null:
+		return
+	var inst := packed.instantiate()
+	for child in inst.find_children("*", "MeshInstance3D", true, false):
+		var mesh_node := child as MeshInstance3D
+		if mesh_node.mesh != null:
+			_model_meshes[String(mesh_node.name).to_lower()] = mesh_node.mesh
+	inst.free()
+
+
+func _model_mesh_for_rank() -> Mesh:
+	_ensure_model_loaded()
+	if _model_meshes.is_empty():
+		return null
+	if _model_meshes.has(rank):
+		return _model_meshes[rank]
+	for key in _model_meshes.keys():
+		if String(key).contains(rank):
+			return _model_meshes[key]
+	return null
+
+
 func _make_block_mesh() -> Mesh:
+	var model_mesh := _model_mesh_for_rank()
+	if model_mesh != null:
+		return model_mesh
 	match rank:
 		"circle":
 			var cyl := CylinderMesh.new()
